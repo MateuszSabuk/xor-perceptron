@@ -4,7 +4,7 @@ use std::fs::File;
 use plotters::backend::BitMapBackend;
 use plotters::chart::ChartBuilder;
 use plotters::prelude::{BLUE, LineSeries, WHITE};
-use nalgebra::{DMatrix, DVector};
+use nalgebra::{DMatrix};
 use plotters::prelude::*;
 
 pub fn get_data_from_csv(filename: &str) -> Result<(DMatrix<f32>, DMatrix<f32>), Box<dyn Error>> {

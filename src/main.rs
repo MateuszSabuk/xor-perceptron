@@ -2,7 +2,6 @@ mod helpers;
 use helpers::{get_data_from_csv,display_plot};
 
 use nalgebra::{DMatrix, DVector};
-use plotters::prelude::*;
 
 fn step_function(x: f32) -> f32 {
     return if x >= 0.0 {1.0} else {0.0};
@@ -22,7 +21,8 @@ impl Perceptron {
         // assert!(x.len() == y.len());
         let m:f32 = 1. / x.row(0).len() as f32;
         let mut total_errors = vec![];
-        for _ in 0..epochs {
+        for ep in 0..epochs {
+            if ep % 100 == 0 {print!("Training: {}%,",100. * ep as f32/epochs as f32)};
             let mut total_error = 0.0;
             for (i,col) in x.column_iter().enumerate() {
                 // Forward pass
@@ -41,6 +41,7 @@ impl Perceptron {
                 }
             }
             total_errors.push(total_error / y.len() as f32);
+            if ep % 100 == 0 {println!("MSE: {},",total_errors.last().unwrap())};
         }
         return total_errors;
     }
@@ -49,7 +50,7 @@ impl Perceptron {
 fn create_perceptron (inputs:usize, outputs:usize) -> Perceptron {
     // TODO: more control over creation of perceptron
     let layer1: Layer = create_layer(4, inputs, relu);
-    let layer2: Layer = create_layer(outputs, 4, relu);
+    let layer2: Layer = create_layer(outputs, 4, step_function);
 
     return Perceptron {
         layers: vec![layer1, layer2],
@@ -95,10 +96,8 @@ fn create_layer (size:usize, input_size:usize, activation: fn(f32)->f32) -> Laye
 
 fn main() {
     let (x,y) = get_data_from_csv("inputs_outputs.csv").unwrap();
-    println!("x={}",x);
-    println!("y={}",y);
     let mut perceptron = create_perceptron(x.column(0).len(), y.column(0).len());
-    let learning_rate = 0.1;
+    let learning_rate = 0.01;
     let epochs = 1000;
     let error_vec = perceptron.train(x, y, learning_rate, epochs);
 
