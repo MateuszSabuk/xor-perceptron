@@ -1,9 +1,5 @@
-use nalgebra::{DMatrix, DVector, SimdPartialOrd};
+use nalgebra::{DMatrix, DVector};
 use plotters::prelude::*;
-
-fn activation_function(values: &DVector<f32>, f: fn(f32)->f32) -> DVector<f32> {
-    return values.map(f);
-}
 
 fn step_function(x: f32) -> f32 {
     return if x >= 0.0 {1.0} else {0.0};
@@ -20,7 +16,7 @@ pub struct Perceptron {
 
 impl Perceptron {
     fn train(&mut self, x: DMatrix<f32>, y:DMatrix<f32>, learning_rate:f32, epochs:usize) -> Vec<f32> {
-        assert!(x.len() == y.len());
+        // assert!(x.len() == y.len());
         let m:f32 = 1. / x.row(0).len() as f32;
         let mut total_errors = vec![];
         for _ in 0..epochs {
@@ -49,8 +45,8 @@ impl Perceptron {
 
 fn create_perceptron (inputs:usize, outputs:usize) -> Perceptron {
     // TODO: more control over creation of perceptron
-    let layer1: Layer = create_layer(4, inputs, step_function);
-    let layer2: Layer = create_layer(outputs, 4, step_function);
+    let layer1: Layer = create_layer(4, inputs, relu);
+    let layer2: Layer = create_layer(outputs, 4, relu);
 
     return Perceptron {
         layers: vec![layer1, layer2],
@@ -77,7 +73,7 @@ impl Layer {
         let next_error = self.weights.transpose() * error;
   
         if self.activation == relu {
-            next_error.component_mul(&linear.clone().map(step_function));
+            let _ = next_error.component_mul(&linear.clone().map(step_function));
         }
 
         self.weights += m * learning_rate * error * vals.transpose();
@@ -90,7 +86,7 @@ fn create_layer (size:usize, input_size:usize, activation: fn(f32)->f32) -> Laye
     return Layer{
         weights: DMatrix::new_random(size, input_size),
         biases: DVector::new_random(size),
-        activation: activation
+        activation
     };
 }
 
@@ -110,7 +106,7 @@ fn display_plot(data: &[f32]) -> Result<(), Box<dyn std::error::Error>> {
         .x_label_area_size(40)
         .y_label_area_size(40)
         .margin(5)
-        .caption("Vector Plot", ("sans-serif", 20))
+        .caption("MSE", ("sans-serif", 20))
         .build_cartesian_2d(x_min..x_max, y_min..y_max)?;
 
     // Draw the data as a line plot
@@ -126,7 +122,6 @@ fn display_plot(data: &[f32]) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
-    let mut perceptron = create_perceptron(2, 2);
     let x:DMatrix<f32> = DMatrix::from_row_slice(2, 4, &[
         0.0, 1.0, 0.0, 1.0,
         0.0, 0.0, 1.0, 1.0
@@ -135,9 +130,10 @@ fn main() {
         0.0, 1.0, 1.0, 0.0,
         1.0, 0.0, 0.0, 1.0
     ]);
+    let mut perceptron = create_perceptron(x.column(0).len(), y.column(0).len());
     let learning_rate = 0.1;
     let epochs = 1000;
     let error_vec = perceptron.train(x, y, learning_rate, epochs);
 
-    display_plot(&error_vec);
+    let _ = display_plot(&error_vec);
 }
