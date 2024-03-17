@@ -7,10 +7,14 @@ def generate_xor_data(height):
         input1 = i % 2
         input2 = (i // 2) % 2
         output = int(input1 != input2)
-        input1 -= random.random()*0.8-0.5
-        input2 -= random.random()*0.8-0.5
-        data.append([input1, input2, '', output])
+        data.append([generate_input(input1), generate_input(input2), '', output])
     return data
+
+def generate_input(input_val):
+    if input_val == 0:
+        return (random.random() - 0.5) * 0.8
+    else:
+        return (random.random() + 0.5) * 0.8
 
 def write_to_csv(data, filename):
     with open(filename, 'w', newline='') as csvfile:
