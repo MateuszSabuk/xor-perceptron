@@ -1,3 +1,6 @@
+mod helpers;
+use helpers::{get_data_from_csv,display_plot};
+
 use nalgebra::{DMatrix, DVector};
 use plotters::prelude::*;
 
@@ -90,46 +93,10 @@ fn create_layer (size:usize, input_size:usize, activation: fn(f32)->f32) -> Laye
     };
 }
 
-fn display_plot(data: &[f32]) -> Result<(), Box<dyn std::error::Error>> {
-    // Create a new drawing area
-    let root = BitMapBackend::new("plot.png", (800, 600)).into_drawing_area();
-    root.fill(&WHITE)?;
-
-    // Define the range of values for x-axis and y-axis
-    let x_min = 0.0;
-    let x_max = data.len() as f32;
-    let y_min = *data.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&0.0);
-    let y_max = *data.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&0.0);
-
-    // Create a new chart context
-    let mut chart = ChartBuilder::on(&root)
-        .x_label_area_size(40)
-        .y_label_area_size(40)
-        .margin(5)
-        .caption("MSE", ("sans-serif", 20))
-        .build_cartesian_2d(x_min..x_max, y_min..y_max)?;
-
-    // Draw the data as a line plot
-    chart
-        .configure_mesh()
-        .draw()?;
-    chart.draw_series(LineSeries::new(
-        data.iter().enumerate().map(|(x, y)| (x as f32, *y)),
-        &BLUE,
-    ))?;
-
-    Ok(())
-}
-
 fn main() {
-    let x:DMatrix<f32> = DMatrix::from_row_slice(2, 4, &[
-        0.0, 1.0, 0.0, 1.0,
-        0.0, 0.0, 1.0, 1.0
-    ]);
-    let y:DMatrix<f32> = DMatrix::from_row_slice(2, 4, &[
-        0.0, 1.0, 1.0, 0.0,
-        1.0, 0.0, 0.0, 1.0
-    ]);
+    let (x,y) = get_data_from_csv("inputs_outputs.csv").unwrap();
+    println!("x={}",x);
+    println!("y={}",y);
     let mut perceptron = create_perceptron(x.column(0).len(), y.column(0).len());
     let learning_rate = 0.1;
     let epochs = 1000;

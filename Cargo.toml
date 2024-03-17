@@ -9,3 +9,4 @@ authors = [ "MateuszSabuk" ]
 [dependencies]
 nalgebra = { version = "0.32.4", features = ["rand"] }
 plotters = { version = "0.3.5" }
+csv = "1.3.0"
