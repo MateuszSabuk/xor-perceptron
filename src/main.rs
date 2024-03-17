@@ -1,4 +1,5 @@
 use nalgebra::{DMatrix, DVector, SimdPartialOrd};
+use plotters::prelude::*;
 
 fn activation_function(values: &DVector<f32>, f: fn(f32)->f32) -> DVector<f32> {
     return values.map(f);
@@ -18,12 +19,12 @@ pub struct Perceptron {
 }
 
 impl Perceptron {
-    fn train(&mut self, x: DMatrix<f32>, y:DMatrix<f32>, learning_rate:f32, epochs:usize) -> Vec<Vec<DVector<f32>>> {
+    fn train(&mut self, x: DMatrix<f32>, y:DMatrix<f32>, learning_rate:f32, epochs:usize) -> Vec<f32> {
         assert!(x.len() == y.len());
         let m:f32 = 1. / x.row(0).len() as f32;
         let mut total_errors = vec![];
         for _ in 0..epochs {
-            let mut total_error = vec![];
+            let mut total_error = 0.0;
             for (i,col) in x.column_iter().enumerate() {
                 // Forward pass
                 let mut linears: Vec<DVector<f32>> = vec![col.clone_owned()];
@@ -33,14 +34,14 @@ impl Perceptron {
                     vals.push(layer.activate(linears.last().unwrap().clone()))
                 }
                 let mut error:DVector<f32> =  y.column(i) - vals.last().unwrap();
-                total_error.push(error.clone());
+                total_error += error.map(|x| x.powf(2.0)).sum();
                 
                 // Backward Propagation
                 for (ln, layer) in self.layers.iter_mut().enumerate().rev() {
                     error = layer.update(&error, &vals[ln], &linears[ln] ,learning_rate, m);
                 }
             }
-            total_errors.push(total_error);
+            total_errors.push(total_error / y.len() as f32);
         }
         return total_errors;
     }
@@ -93,6 +94,37 @@ fn create_layer (size:usize, input_size:usize, activation: fn(f32)->f32) -> Laye
     };
 }
 
+fn display_plot(data: &[f32]) -> Result<(), Box<dyn std::error::Error>> {
+    // Create a new drawing area
+    let root = BitMapBackend::new("plot.png", (800, 600)).into_drawing_area();
+    root.fill(&WHITE)?;
+
+    // Define the range of values for x-axis and y-axis
+    let x_min = 0.0;
+    let x_max = data.len() as f32;
+    let y_min = *data.iter().min_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&0.0);
+    let y_max = *data.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(&0.0);
+
+    // Create a new chart context
+    let mut chart = ChartBuilder::on(&root)
+        .x_label_area_size(40)
+        .y_label_area_size(40)
+        .margin(5)
+        .caption("Vector Plot", ("sans-serif", 20))
+        .build_cartesian_2d(x_min..x_max, y_min..y_max)?;
+
+    // Draw the data as a line plot
+    chart
+        .configure_mesh()
+        .draw()?;
+    chart.draw_series(LineSeries::new(
+        data.iter().enumerate().map(|(x, y)| (x as f32, *y)),
+        &BLUE,
+    ))?;
+
+    Ok(())
+}
+
 fn main() {
     let mut perceptron = create_perceptron(2, 2);
     let x:DMatrix<f32> = DMatrix::from_row_slice(2, 4, &[
@@ -105,12 +137,7 @@ fn main() {
     ]);
     let learning_rate = 0.1;
     let epochs = 1000;
-    let error = perceptron.train(x, y, learning_rate, epochs);
-    
+    let error_vec = perceptron.train(x, y, learning_rate, epochs);
 
-    for (i,e) in error.iter().enumerate() {
-        for (j,a) in e.iter().enumerate() {
-            print!("epoch = {}, n = {}, {}", i,j,a);
-        }
-    }
+    display_plot(&error_vec);
 }
