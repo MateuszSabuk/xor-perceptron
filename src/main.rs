@@ -1,13 +1,12 @@
 mod helpers;
 use helpers::{get_data_from_csv, display_plot, scatter_plot};
-use nalgebra::{DMatrix, DVector};
-use crate::ActivationFunction::ReLU;
+use nalgebra::{DMatrix, DVector, OMatrix, Dyn, U1};
+use crate::ActivationFunction::{ReLU, Step};
 
 #[derive(Copy, Clone, PartialEq)]
 enum ActivationFunction {
     Step,
     ReLU,
-    Impulse,
 }
 
 impl ActivationFunction {
@@ -18,14 +17,23 @@ impl ActivationFunction {
             },
             ActivationFunction::ReLU => {
                 if x >= 0.0 { x } else { 0.0 }
+            }
+        }
+    }
+
+    fn prime(&self, x: f32) -> f32 {
+        return match self {
+            ActivationFunction::Step => {
+                if x == 0.0 { 1.0 } else { 0.0 } // Impulse
             },
-            ActivationFunction::Impulse => {
-                if x == 0.0 { 1.0 } else { 0.0 }
+            ActivationFunction::ReLU => {
+                if x >= 0.0 { 1.0 } else { 0.0 } // Step
             },
         }
     }
 }
 
+#[derive(Clone)]
 pub struct Perceptron {
     layers: Vec<Layer>,
 }
@@ -38,7 +46,7 @@ impl Perceptron {
     /// * `neuron_num_vec`: Vector of numbers of neurons for each consecutive layer \
     ///     last number is the number of outputs of the perceptron
     /// * `activation_fn_vec`: Vector of references to activation functions for each consecutive layer
-    pub fn new(num_of_inputs: usize, mut neuron_num_vec: Vec<usize>, activation_fn_vec: Vec<ActivationFunction>) -> Perceptron {
+    fn new(num_of_inputs: usize, mut neuron_num_vec: Vec<usize>, activation_fn_vec: Vec<ActivationFunction>) -> Perceptron {
         assert_eq!(neuron_num_vec.len(), activation_fn_vec.len());
         assert!(neuron_num_vec.len() > 0);
 
@@ -49,8 +57,10 @@ impl Perceptron {
             layers.push(layer);
         }
 
+
+
         return Perceptron {
-            layers,
+            layers
         };
     }
 
@@ -66,43 +76,85 @@ impl Perceptron {
     /// * `epochs` - Number of training iterations
     pub fn train(&mut self, x: DMatrix<f32>, y: DMatrix<f32>, learning_rate: f32, epochs: usize) -> Vec<f32> {
         assert_eq!(x.ncols(),y.ncols());
+        let num_of_data_examples = x.ncols() as f32;
 
-        let m: f32 = 1f32 / x.ncols() as f32;
-        let mut total_errors = vec![];
+        let mut all_costs_vec = vec![];
         for ep in 0..epochs {
-            let mut total_error = 0.0;
+            let mut epoch_cost_vec = vec![];
+            let (mut nabla_w, mut nabla_b) = self.get_weights_and_biases();
+
+            // Iterate through the input-output data
             for (i, col) in x.column_iter().enumerate() {
                 // Forward Pass
-                let mut linears: Vec<DVector<f32>> = vec![col.clone_owned()];
-                let mut vals: Vec<DVector<f32>> = vec![col.clone_owned()];
+                let mut zs: Vec<DVector<f32>> = vec![col.clone_owned()];
+                let mut activations: Vec<DVector<f32>> = vec![col.clone_owned()];
                 for layer in &mut self.layers {
-                    linears.push(layer.process(vals.last().unwrap().clone()));
-                    vals.push(layer.activate(linears.last().unwrap().clone()))
+                    zs.push(layer.process(activations.last().unwrap().clone()));
+                    activations.push(layer.activate(zs.last().unwrap().clone()))
                 }
+                // Evaluate cost of last layer neuron
+                epoch_cost_vec.push((activations.last().unwrap() - y.column(i)).map(|x|x.powf(2f32)).sum());
 
-                // Evaluate error
-                let mut error: DVector<f32> = y.column(i) - vals.last().unwrap();
-                total_error += error.map(|x| x.powf(2.0)).sum();
+                let delta: DVector<f32> = (activations.last().unwrap() - y.column(i))
+                    .map(|x|self.layers.last().unwrap().activation.prime(x));
 
-                // Backpropagation
-                for (ln, layer) in self.layers.iter_mut().enumerate().rev() {
-                    error = layer.update(&error, &vals[ln], &linears[ln], learning_rate, m);
+                let (mut w_delta, mut b_delta) = self.get_weights_and_biases();
+                b_delta.pop();
+                b_delta.push(delta.clone());
+                w_delta.pop();
+                w_delta.push(delta.clone() * (activations.get(activations.len()-2).unwrap().transpose()));
+
+                let (delta_nabla_w, delta_nabla_b) = self.backpropagate((w_delta,b_delta), &zs, &activations, &delta);
+                for (i,n) in nabla_w.iter_mut().enumerate() {
+                    *n += delta_nabla_w[i].clone();
+                }
+                for (i,n) in nabla_b.iter_mut().enumerate() {
+                    *n += delta_nabla_b[i].clone();
                 }
             }
-            total_errors.push(total_error / (y.ncols() as f32));
+            let m: f32 = learning_rate / num_of_data_examples;
+            for (i, layer) in self.layers.iter_mut().enumerate() {
+                layer.weights -= m*&nabla_w[i];
+                layer.biases -= m*&nabla_b[i];
+            }
 
+            let sum_of_costs: f32 = epoch_cost_vec.iter().sum();
+            all_costs_vec.push(sum_of_costs/num_of_data_examples);
             // Display status every 10% done
             if (ep % (epochs/10)) == 0 {
                 print!("Training epoch {}/{}, ", ep, epochs);
-                println!("MSE: {},", total_errors.last().unwrap());
-            }
-            // Training stop condition if total_error smaller than threshold
-            if 0.01 > total_error / y.len() as f32 {
-                println!("MSE: {},", total_errors.last().unwrap());
-                break;
+                println!("MSE: {},", all_costs_vec.last().unwrap());
             }
         }
-        return total_errors;
+        return all_costs_vec;
+    }
+
+    fn backpropagate(&mut self, (mut w_delta,mut b_delta): (Vec<OMatrix<f32, Dyn, Dyn>>, Vec<OMatrix<f32, Dyn, U1>>), zs: &Vec<DVector<f32>>, activations: &Vec<DVector<f32>>, delta: &DVector<f32>) -> (Vec<OMatrix<f32, Dyn, Dyn>>, Vec<OMatrix<f32, Dyn, U1>>) {
+        let mut d:Vec<DVector<f32>>= vec![delta.clone()];
+        for i in (0..(self.layers.len()-1)).rev() {
+            let ap = zs[i].map(|x|self.layers[i].activation.prime(x));
+            d.push((self.layers[i].weights.clone() * ap) * delta);
+
+            b_delta[i] = d.last().unwrap().clone_owned();
+            w_delta[i] = d.last().unwrap().clone_owned() * activations[i].transpose();
+        }
+        let mut nabla_w = vec![];
+        let mut nabla_b = vec![];
+        for (i,_) in w_delta.iter().enumerate() {
+            nabla_w.push(w_delta[i].clone());
+            nabla_b.push(b_delta[i].clone());
+        }
+        return (nabla_w, nabla_b);
+    }
+
+    fn get_weights_and_biases(&self) -> (Vec<DMatrix<f32>>, Vec<DVector<f32>>) {
+        let mut w: Vec<DMatrix<f32>> = vec![];
+        let mut b: Vec<DVector<f32>> = vec![];
+        for layer in &self.layers {
+            w.push(layer.weights.clone_owned());
+            b.push(layer.biases.clone_owned());
+        }
+        return (w,b)
     }
 
     // Test perceptron
@@ -123,6 +175,7 @@ impl Perceptron {
 }
 
 // Structure of a single perceptron layer
+#[derive(Clone)]
 pub struct Layer {
     weights: DMatrix<f32>,
     biases: DVector<f32>,
@@ -148,22 +201,6 @@ impl Layer {
     fn activate(&self, inputs: DVector<f32>) -> DVector<f32> {
         return inputs.map(|x| self.activation.apply(x));
     }
-
-    // Weights and biases update
-    fn update(&mut self, error: &DVector<f32>, vals: &DVector<f32>, linear: &DVector<f32>, learning_rate: f32, m: f32) -> DVector<f32> {
-        let next_error = self.weights.transpose() * error;
-
-        // Use of the derivative functions
-        if self.activation == ActivationFunction::ReLU {
-            let _ = next_error.component_mul(&linear.clone().map(|x| ActivationFunction::Step.apply(x)));
-        } else if self.activation == ActivationFunction::Step {
-            let _ = next_error.component_mul(&linear.clone().map(|x| ActivationFunction::Impulse.apply(x)));
-        }
-
-        self.weights += m * learning_rate * error * vals.transpose();
-        self.biases += m * learning_rate * error;
-        return next_error;
-    }
 }
 
 
@@ -181,9 +218,9 @@ fn divide_train_test(x: &DMatrix<f32>, y: &DMatrix<f32>, proportion: f32) -> ((D
 fn main() {
     let (x,y) = get_data_from_csv("inputs_outputs.csv").unwrap();
     let ((train_x,train_y),(test_x,test_y)) = divide_train_test(&x,&y,0.8);
-    let mut perceptron = Perceptron::new(x.nrows(),vec![4,4,1],vec![ReLU,ReLU,ReLU]);
-    let learning_rate = 0.01;
-    let epochs = 200;
+    let mut perceptron = Perceptron::new(x.nrows(),vec![4,3,2],vec![ReLU,ReLU,Step]);
+    let learning_rate = 0.001;
+    let epochs = 1000;
     let error_vec = perceptron.train(train_x, train_y, learning_rate, epochs);
 
     let test_error_vec = perceptron.test(test_x.clone_owned(),test_y.clone_owned());
